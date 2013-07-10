@@ -8,7 +8,7 @@ let
 
       if [ $compressionType = "xz" ]; then
         ext=xz
-        compressor="${xz} -9"
+        compressor="${xz} -6e"
       else
         ext=bz2
         compressor="${bzip2}"

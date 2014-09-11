@@ -296,27 +296,27 @@ static void foundRoot(StoreAPI & store,
         printMsg(lvlInfo, format("skipping invalid root from ‘%1%’ to ‘%2%’") % path % storePath);
 }
 
+unsigned char statToMode(const struct stat &st) {
+    if (S_ISDIR(st.st_mode)) return DT_DIR;
+    else if (S_ISLNK(st.st_mode)) return DT_LNK;
+    else if (S_ISREG(st.st_mode)) return DT_REG;
+    return DT_UNKNOWN;
+}
 
-static void findRoots(StoreAPI & store, const Path & path, unsigned char type, Roots & roots)
+static void findRoots(StoreAPI & store, const Path & _path, unsigned char type, Roots & roots)
 {
+    Path path = _path;
     try {
 
-        if (type == DT_UNKNOWN) {
-            struct stat st = lstat(path);
-            if (S_ISDIR(st.st_mode)) type = DT_DIR;
-            else if (S_ISLNK(st.st_mode)) type = DT_LNK;
-            else if (S_ISREG(st.st_mode)) type = DT_REG;
-        }
+        if (type == DT_UNKNOWN)
+            type = statToMode(lstat(path));
 
-        if (type == DT_DIR) {
-            for (auto & i : readDirectory(path))
-                findRoots(store, path + "/" + i.name, i.type, roots);
-        }
-
-        else if (type == DT_LNK) {
+        while (type == DT_LNK) {
             Path target = readLink(path);
-            if (isInStore(target))
+            if (isInStore(target)) {
                 foundRoot(store, path, target, roots);
+                break;
+            }
 
             /* Handle indirect roots. */
             else {
@@ -326,13 +326,18 @@ static void findRoots(StoreAPI & store, const Path & path, unsigned char type, R
                         printMsg(lvlInfo, format("removing stale link from ‘%1%’ to ‘%2%’") % path % target);
                         unlink(path.c_str());
                     }
+                    break;
                 } else {
-                    struct stat st2 = lstat(target);
-                    if (!S_ISLNK(st2.st_mode)) return;
-                    Path target2 = readLink(target);
-                    if (isInStore(target2)) foundRoot(store, target, target2, roots);
+                    /* continue traversing */
+                    path = target;
+                    type = statToMode(lstat(target));
                 }
             }
+        }
+
+        if (type == DT_DIR) {
+            for (auto & i : readDirectory(path))
+                findRoots(store, path + "/" + i.name, i.type, roots);
         }
 
         else if (type == DT_REG) {
